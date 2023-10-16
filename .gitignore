@@ -26,4 +26,5 @@ checkpoints
 ckpts*
 
 .ipynb_checkpoints
-*.ipynb
+*.png
+*.pt
