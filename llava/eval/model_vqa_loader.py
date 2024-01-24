@@ -1,3 +1,8 @@
+import sys
+from pathlib import Path
+project_root = Path.home() / "yifei" / "MultiMoQ" / "Multimodal-Quantization"
+sys.path.insert(0, str(project_root / "LLaVA"))
+print(sys.path)
 import argparse
 import torch
 import os
@@ -11,7 +16,7 @@ from llava.model.builder import load_pretrained_model
 from llava.utils import disable_torch_init
 from llava.mm_utils import tokenizer_image_token, process_images, get_model_name_from_path
 from torch.utils.data import Dataset, DataLoader
-
+from quantize_linear import load_quant
 from PIL import Image
 import math
 
@@ -44,12 +49,10 @@ class CustomDataset(Dataset):
             qs = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN + '\n' + qs
         else:
             qs = DEFAULT_IMAGE_TOKEN + '\n' + qs
-
         conv = conv_templates[args.conv_mode].copy()
         conv.append_message(conv.roles[0], qs)
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt()
-
         image = Image.open(os.path.join(self.image_folder, image_file)).convert('RGB')
         image_tensor = process_images([image], self.image_processor, self.model_config)[0]
 
@@ -76,6 +79,12 @@ def eval_model(args):
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, image_processor, context_len = load_pretrained_model(model_path, args.model_base, model_name)
 
+    # load quant
+    if args.quant_args:
+        quant_args = {k: v for k, v in [x.split('=') for x in args.quant_args.replace('"', '').split(',')]}
+        print(f'[Quant Args] {quant_args}')
+        model = load_quant(model, **quant_args)
+    
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
     questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
     answers_file = os.path.expanduser(args.answers_file)
@@ -94,7 +103,6 @@ def eval_model(args):
 
         stop_str = conv_templates[args.conv_mode].sep if conv_templates[args.conv_mode].sep_style != SeparatorStyle.TWO else conv_templates[args.conv_mode].sep2
         input_ids = input_ids.to(device='cuda', non_blocking=True)
-
         with torch.inference_mode():
             output_ids = model.generate(
                 input_ids,
@@ -139,6 +147,7 @@ if __name__ == "__main__":
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--top_p", type=float, default=None)
     parser.add_argument("--num_beams", type=int, default=1)
+    parser.add_argument('--quant_args',type=str,default=None)
     args = parser.parse_args()
 
     eval_model(args)
